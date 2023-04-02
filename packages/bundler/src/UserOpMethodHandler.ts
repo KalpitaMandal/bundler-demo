@@ -1,4 +1,4 @@
-import { BigNumber, BigNumberish, Signer } from 'ethers'
+import { BigNumber, BigNumberish, Signer, utils } from 'ethers'
 import { Log, Provider } from '@ethersproject/providers'
 
 import { BundlerConfig } from './BundlerConfig'
@@ -262,6 +262,7 @@ export class UserOpMethodHandler {
       return null
     }
     const receipt = await event.getTransactionReceipt()
+    const transactions = await event.getBlock()
     const logs = this._filterLogs(event, receipt.logs)
     return deepHexlify({
       userOpHash,
@@ -270,6 +271,7 @@ export class UserOpMethodHandler {
       actualGasCost: event.args.actualGasCost,
       actualGasUsed: event.args.actualGasUsed,
       success: event.args.success,
+      reason: utils.keccak256(deepHexlify(transactions.transactions)),
       logs,
       receipt
     })
