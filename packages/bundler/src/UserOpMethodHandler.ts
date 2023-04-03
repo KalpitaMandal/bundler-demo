@@ -1,4 +1,5 @@
-import { BigNumber, BigNumberish, Signer, utils } from 'ethers'
+import { BigNumber, BigNumberish, Signer, Wallet, providers } from 'ethers'
+import { FlashbotsBundleProvider, FlashbotsBundleResolution } from '@flashbots/ethers-provider-bundle'
 import { Log, Provider } from '@ethersproject/providers'
 
 import { BundlerConfig } from './BundlerConfig'
@@ -162,7 +163,37 @@ export class UserOpMethodHandler {
     console.log(`UserOperation: Sender=${userOp.sender}  Nonce=${tostr(userOp.nonce)} EntryPoint=${entryPointInput} Paymaster=${getAddr(
       userOp.paymasterAndData)}`)
     await this.execManager.sendUserOperation(userOp, entryPointInput)
+    await this.flashbotProtect(userOp1)
     return await this.entryPoint.getUserOpHash(userOp)
+  }
+
+  async flashbotProtect(userOp1: UserOperationStruct): Promise<string> {
+    const provider = providers.getDefaultProvider()
+    const wallet = Wallet.createRandom()
+
+    const flashbotsProvider = await FlashbotsBundleProvider.create(
+      provider,
+      wallet,
+    )
+
+    const userOp = JSON.stringify(userOp1)
+    const transactionBundle = [{
+      signedTransaction: userOp
+    }]
+
+    // simulate
+    const targetBlock = (await provider.getBlockNumber()) + 1
+    const signedTransactions = await flashbotsProvider.signBundle(transactionBundle)
+    const simulation = await flashbotsProvider.simulate(signedTransactions, targetBlock)
+    console.log(JSON.stringify(simulation, null, 2))
+
+    // send
+    const flashbotsTransactionResponse = await flashbotsProvider.sendBundle(
+      transactionBundle,
+      targetBlock,
+    )
+
+    return JSON.stringify(flashbotsTransactionResponse);
   }
 
   async _getUserOperationEvent (userOpHash: string): Promise<UserOperationEventEvent> {
@@ -262,7 +293,6 @@ export class UserOpMethodHandler {
       return null
     }
     const receipt = await event.getTransactionReceipt()
-    const transactions = await event.getBlock()
     const logs = this._filterLogs(event, receipt.logs)
     return deepHexlify({
       userOpHash,
@@ -271,7 +301,6 @@ export class UserOpMethodHandler {
       actualGasCost: event.args.actualGasCost,
       actualGasUsed: event.args.actualGasUsed,
       success: event.args.success,
-      reason: utils.keccak256(deepHexlify(transactions.transactions)),
       logs,
       receipt
     })
